@@ -2,6 +2,13 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="DJK Buchonia">
+<meta name="theme-color" content="#1a1a1a">
+<link rel="manifest" id="pwa-manifest">
+<link rel="apple-touch-icon" id="apple-icon">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>DJK Buchonia Fulda 1920/55</title>
 <style>
@@ -630,5 +637,83 @@ window.printStats = function(){
 };
 
 </script>
+
+<script>
+// ---- PWA SETUP ----
+(function(){
+  // Get logo base64 from the img tag
+  const logoSrc = document.querySelector('.logo').src;
+
+  // Create manifest blob
+  const manifest = {
+    name: "DJK Buchonia Fulda 1920/55",
+    short_name: "DJK Buchonia",
+    start_url: "./",
+    display: "standalone",
+    background_color: "#1a1a1a",
+    theme_color: "#1a1a1a",
+    orientation: "portrait",
+    icons: [
+      { src: logoSrc, sizes: "192x192", type: "image/png", purpose: "any maskable" },
+      { src: logoSrc, sizes: "512x512", type: "image/png", purpose: "any maskable" }
+    ]
+  };
+  const blob = new Blob([JSON.stringify(manifest)], {type: 'application/json'});
+  const manifestURL = URL.createObjectURL(blob);
+  document.getElementById('pwa-manifest').href = manifestURL;
+  document.getElementById('apple-icon').href = logoSrc;
+
+  // Register service worker for offline support
+  if('serviceWorker' in navigator){
+    // Inline service worker
+    const swCode = `
+self.addEventListener('install', e => self.skipWaiting());
+self.addEventListener('activate', e => e.waitUntil(clients.claim()));
+self.addEventListener('fetch', e => {
+  if(e.request.url.includes('firebasedatabase') || e.request.url.includes('gstatic')) return;
+  e.respondWith(fetch(e.request).catch(() => caches.match(e.request)));
+});`;
+    const swBlob = new Blob([swCode], {type:'application/javascript'});
+    const swURL = URL.createObjectURL(swBlob);
+    navigator.serviceWorker.register(swURL).catch(()=>{});
+  }
+
+  // Show "Add to homescreen" hint on first visit
+  const shown = localStorage.getItem('pwa_hint_shown');
+  if(!shown){
+    setTimeout(()=>{
+      const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+      const isAndroid = /android/i.test(navigator.userAgent);
+      if(isIOS){
+        showPwaHint('iOS');
+      } else if(isAndroid){
+        showPwaHint('Android');
+      }
+      localStorage.setItem('pwa_hint_shown','1');
+    }, 2000);
+  }
+})();
+
+function showPwaHint(platform){
+  const div = document.createElement('div');
+  div.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:#1a1a1a;color:white;padding:16px;z-index:9999;border-top:3px solid #f5c800;font-family:inherit';
+  const isIOS = platform === 'iOS';
+  div.innerHTML = `
+    <div style="display:flex;align-items:flex-start;gap:12px">
+      <div style="font-size:28px">📲</div>
+      <div style="flex:1">
+        <div style="font-weight:700;font-size:14px;color:#f5c800;margin-bottom:4px">App auf dem Homescreen speichern</div>
+        <div style="font-size:12px;color:#ccc;line-height:1.5">
+          ${isIOS
+            ? 'Tippe unten auf das <strong style="color:white">Teilen-Symbol</strong> (□↑) und dann auf <strong style="color:white">„Zum Home-Bildschirm"</strong>'
+            : 'Tippe oben rechts auf das <strong style="color:white">Menü (⋮)</strong> und dann auf <strong style="color:white">„App installieren"</strong> oder <strong style="color:white">„Zum Startbildschirm"</strong>'}
+        </div>
+      </div>
+      <div onclick="this.parentElement.parentElement.remove()" style="font-size:20px;cursor:pointer;color:#888;padding:0 4px">✕</div>
+    </div>`;
+  document.body.appendChild(div);
+}
+</script>
+
 </body>
 </html>
