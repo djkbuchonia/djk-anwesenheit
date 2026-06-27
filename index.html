@@ -545,22 +545,42 @@ window.cancelEditSession = function(){
 window.saveSession = function(){
   const date=document.getElementById('training-date').value;
   if(!date){alert('Bitte Datum wählen!');return;}
-  const present=[...statusMap.entries()].filter(([,v])=>v===1).map(([i])=>players[i]?.name).filter(Boolean);
-  const excused=[...statusMap.entries()].filter(([,v])=>v===2).map(([i])=>players[i]?.name).filter(Boolean);
-  if(!present.length&&!excused.length&&!confirm('Keine Einträge – trotzdem speichern?'))return;
+
+  const newPresent=[...statusMap.entries()].filter(([,v])=>v===1).map(([i])=>players[i]?.name).filter(Boolean);
+  const newExcused=[...statusMap.entries()].filter(([,v])=>v===2).map(([i])=>players[i]?.name).filter(Boolean);
+  if(!newPresent.length&&!newExcused.length&&!confirm('Keine Einträge – trotzdem speichern?'))return;
+
   const ex=sessions.findIndex(s=>s.date===date);
-  if(ex>=0){
-    if(!editingSessionDate&&!confirm('Training vom '+fmtDate(date)+' bereits gespeichert. Überschreiben?'))return;
+  let finalPresent=newPresent;
+  let finalExcused=newExcused;
+
+  if(ex>=0 && !editingSessionDate){
+    // Tag existiert → zusammenführen
+    const old=sessions[ex];
+    const oldPresent=old.present||[];
+    const oldExcused=old.excused||[];
+    // Nur explizit gesetzte Namen überschreiben den alten Status
+    const explicitNames=new Set([...newPresent,...newExcused]);
+    const mergedPresent=new Set([...newPresent,...oldPresent.filter(n=>!explicitNames.has(n))]);
+    const mergedExcused=new Set([...newExcused,...oldExcused.filter(n=>!explicitNames.has(n))]);
+    // Anwesend hat Vorrang vor entschuldigt
+    mergedExcused.forEach(n=>{if(mergedPresent.has(n))mergedExcused.delete(n);});
+    finalPresent=[...mergedPresent];
+    finalExcused=[...mergedExcused];
+    sessions.splice(ex,1);
+  } else if(ex>=0){
     sessions.splice(ex,1);
   }
-  sessions.push({date,present,excused});
+
+  sessions.push({date,present:finalPresent,excused:finalExcused});
   sessions.sort((a,b)=>b.date.localeCompare(a.date));
   writeSessions();
+
   if(editingSessionDate){
-    alert('✅ Training vom '+fmtDate(date)+' aktualisiert!\n'+present.length+' anwesend, '+excused.length+' entschuldigt.');
+    alert('✅ Training vom '+fmtDate(date)+' aktualisiert!\n'+finalPresent.length+' anwesend, '+finalExcused.length+' entschuldigt.');
     cancelEditSession();
   } else {
-    alert('✅ Training vom '+fmtDate(date)+' gespeichert!\n'+present.length+' anwesend, '+excused.length+' entschuldigt.');
+    alert('✅ Training vom '+fmtDate(date)+' gespeichert!\n'+finalPresent.length+' anwesend, '+finalExcused.length+' entschuldigt.');
     statusMap.clear();renderPlayers();
   }
 };
