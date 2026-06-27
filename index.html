@@ -47,6 +47,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .player-row{display:flex;align-items:center;gap:10px;background:white;border-bottom:1px solid #eee;padding:10px 16px}
 .player-row.anwesend{background:#f0fff4}
 .player-row.birthday{background:#fffde7}
+.player-row.entschuldigt{background:#fff8e1}
+.player-check.ex{background:#ff9800;border-color:#ff9800}
+.player-check.ex::after{content:"E";color:white;font-size:11px;font-weight:700}
+.name-chip-ex{background:#ff9800;color:white;font-size:11px;font-weight:600;border-radius:12px;padding:3px 8px}
 .player-check{width:24px;height:24px;border-radius:50%;border:2px solid #ccc;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:all .15s}
 .player-check.an{background:var(--gruen);border-color:var(--gruen)}
 .player-check.an::after{content:"✓";color:white;font-size:13px;font-weight:700}
@@ -259,7 +263,7 @@ const DEFAULT_PLAYERS = [{"name": "Alexander Bykanov", "info": "16.06.1995"}, {"
 // ---- STATE ----
 let players = [];
 let sessions = [];
-let checked = new Set();
+let statusMap = new Map(); // idx -> 1 (anwesend) | 2 (entschuldigt)
 let sortAZ = true;
 let pendingDeleteIdx = null;
 let pendingEditIdx = null;
@@ -393,13 +397,19 @@ function renderPlayers(){
   const list=document.getElementById('player-list');
   if(!indexed.length){list.innerHTML='<div class="empty">Kein Spieler gefunden</div>';return;}
   list.innerHTML=indexed.map(p=>{
-    const on=checked.has(p.origIdx);
+    const st=statusMap.get(p.origIdx)||0; // 0=leer, 1=anwesend, 2=entschuldigt
     const bday=isBirthdayToday(p.info);
     const age=calcAge(p.info);
-    const rowClass='player-row'+(on?' anwesend':'')+(bday?' birthday':'');
+    let rowClass='player-row';
+    if(st===1) rowClass+=' anwesend';
+    else if(st===2) rowClass+=' entschuldigt';
+    if(bday) rowClass+=' birthday';
     const infoText=p.info?(bday?'🎂 '+p.info+(age?' ('+age+' Jahre)':''):p.info):'';
+    let checkClass='player-check';
+    if(st===1) checkClass+=' an';
+    else if(st===2) checkClass+=' ex';
     return `<div class="${rowClass}">
-      <div class="player-check${on?' an':''}" onclick="togglePlayer(${p.origIdx})"></div>
+      <div class="${checkClass}" onclick="togglePlayer(${p.origIdx})" title="Tippen zum Wechseln: leer → anwesend → entschuldigt"></div>
       <div class="player-name">${p.name}${infoText?`<small>${infoText}</small>`:''}
       </div>
       <div class="player-actions">
@@ -411,7 +421,10 @@ function renderPlayers(){
 }
 
 window.togglePlayer = function(idx){
-  if(checked.has(idx))checked.delete(idx);else checked.add(idx);
+  const cur=statusMap.get(idx)||0;
+  if(cur===0) statusMap.set(idx,1);       // leer → anwesend
+  else if(cur===1) statusMap.set(idx,2);  // anwesend → entschuldigt
+  else statusMap.delete(idx);             // entschuldigt → leer
   renderPlayers();
 };
 
@@ -432,7 +445,7 @@ window.addManual = function(){
   if(players.find(p=>p.name.toLowerCase()===name.toLowerCase())){nameInp.classList.add('error');hint.textContent='Name bereits vorhanden!';hint.classList.add('show');return;}
   players.push({name,info:bdayParsed.str});
   writePlayers();
-  checked.add(players.length-1);
+  statusMap.set(players.length-1,1);
   nameInp.value='';bdayInp.value='';
   renderPlayers();renderBdayBanners();
 };
@@ -448,9 +461,9 @@ window.confirmDelete = function(){
   if(pendingDeleteIdx===null)return;
   players.splice(pendingDeleteIdx,1);
   writePlayers();
-  const nc=new Set();
-  checked.forEach(i=>{if(i<pendingDeleteIdx)nc.add(i);else if(i>pendingDeleteIdx)nc.add(i-1);});
-  checked=nc;
+  const nm=new Map();
+  statusMap.forEach((v,i)=>{if(i<pendingDeleteIdx)nm.set(i,v);else if(i>pendingDeleteIdx)nm.set(i-1,v);});
+  statusMap=nm;
   closeDelModal();
   renderPlayers();renderBdayBanners();
 };
@@ -493,7 +506,7 @@ window.confirmEdit = function(){
 };
 
 // ---- RESET ----
-window.resetCheck = function(){checked.clear();renderPlayers();};
+window.resetCheck = function(){statusMap.clear();renderPlayers();};
 
 // ---- EDIT SESSION ----
 window.loadSessionForEdit = function(date){
@@ -502,10 +515,14 @@ window.loadSessionForEdit = function(date){
   if(!s)return;
   document.getElementById('training-date').value=date;
   updateHeaderDate();
-  checked.clear();
-  s.present.forEach(name=>{
+  statusMap.clear();
+  (s.present||[]).forEach(name=>{
     const idx=players.findIndex(p=>p.name===name);
-    if(idx>=0)checked.add(idx);
+    if(idx>=0)statusMap.set(idx,1);
+  });
+  (s.excused||[]).forEach(name=>{
+    const idx=players.findIndex(p=>p.name===name);
+    if(idx>=0)statusMap.set(idx,2);
   });
   editingSessionDate=date;
   document.getElementById('edit-session-bar').style.display='flex';
@@ -518,7 +535,7 @@ window.cancelEditSession = function(){
   editingSessionDate=null;
   document.getElementById('edit-session-bar').style.display='none';
   document.getElementById('main-save-btn').textContent='Training speichern';
-  checked.clear();
+  statusMap.clear();
   document.getElementById('training-date').value=todayStr();
   updateHeaderDate();
   renderPlayers();
@@ -528,22 +545,23 @@ window.cancelEditSession = function(){
 window.saveSession = function(){
   const date=document.getElementById('training-date').value;
   if(!date){alert('Bitte Datum wählen!');return;}
-  const present=[...checked].map(i=>players[i]?.name).filter(Boolean);
-  if(!present.length&&!confirm('Keine Spieler anwesend – trotzdem speichern?'))return;
+  const present=[...statusMap.entries()].filter(([,v])=>v===1).map(([i])=>players[i]?.name).filter(Boolean);
+  const excused=[...statusMap.entries()].filter(([,v])=>v===2).map(([i])=>players[i]?.name).filter(Boolean);
+  if(!present.length&&!excused.length&&!confirm('Keine Einträge – trotzdem speichern?'))return;
   const ex=sessions.findIndex(s=>s.date===date);
   if(ex>=0){
     if(!editingSessionDate&&!confirm('Training vom '+fmtDate(date)+' bereits gespeichert. Überschreiben?'))return;
     sessions.splice(ex,1);
   }
-  sessions.push({date,present});
+  sessions.push({date,present,excused});
   sessions.sort((a,b)=>b.date.localeCompare(a.date));
   writeSessions();
   if(editingSessionDate){
-    alert('✅ Training vom '+fmtDate(date)+' aktualisiert!\n'+present.length+' Spieler anwesend.');
+    alert('✅ Training vom '+fmtDate(date)+' aktualisiert!\n'+present.length+' anwesend, '+excused.length+' entschuldigt.');
     cancelEditSession();
   } else {
-    alert('✅ Training vom '+fmtDate(date)+' gespeichert!\n'+present.length+' Spieler anwesend.');
-    checked.clear();renderPlayers();
+    alert('✅ Training vom '+fmtDate(date)+' gespeichert!\n'+present.length+' anwesend, '+excused.length+' entschuldigt.');
+    statusMap.clear();renderPlayers();
   }
 };
 
@@ -564,32 +582,49 @@ window.confirmDeleteSession = function(){
 // ---- STATS ----
 function renderStats(){
   const total=sessions.length;
-  const map={};
-  sessions.forEach(s=>s.present.forEach(n=>{map[n]=(map[n]||0)+1;}));
-  const totalPresent=sessions.reduce((sum,s)=>sum+s.present.length,0);
+  const mapP={}, mapE={};
+  sessions.forEach(s=>{
+    (s.present||[]).forEach(n=>{mapP[n]=(mapP[n]||0)+1;});
+    (s.excused||[]).forEach(n=>{mapE[n]=(mapE[n]||0)+1;});
+  });
+  const totalPresent=sessions.reduce((sum,s)=>sum+(s.present||[]).length,0);
+  const totalExcused=sessions.reduce((sum,s)=>sum+(s.excused||[]).length,0);
   const avgAttendees=total?Math.round(totalPresent/total):0;
+  const avgExcused=total?Math.round(totalExcused/total):0;
   document.getElementById('kpi-row').innerHTML=
     '<div class="kpi"><div class="kpi-val">'+total+'</div><div class="kpi-lbl">Trainings gesamt</div></div>'+
-    '<div class="kpi"><div class="kpi-val">'+avgAttendees+'</div><div class="kpi-lbl">Ø Teilnehmer</div></div>';
+    '<div class="kpi"><div class="kpi-val">'+avgAttendees+'</div><div class="kpi-lbl">Ø Anwesend</div></div>'+
+    '<div class="kpi"><div class="kpi-val">'+avgExcused+'</div><div class="kpi-lbl">Ø Entschuldigt</div></div>';
   if(!total){document.getElementById('ranking-list').innerHTML='<div class="empty">Noch keine Trainings gespeichert</div>';return;}
   const search=(document.getElementById('stats-search').value||'').toLowerCase();
   const sort=document.getElementById('stats-sort').value;
-  const allNames=[...new Set([...players.map(p=>p.name),...Object.keys(map)])];
-  let entries=allNames.map(n=>[n,map[n]||0]).filter(([n])=>n.toLowerCase().includes(search));
+  const allNames=[...new Set([...players.map(p=>p.name),...Object.keys(mapP),...Object.keys(mapE)])];
+  let entries=allNames.map(n=>[n,mapP[n]||0,mapE[n]||0]).filter(([n])=>n.toLowerCase().includes(search));
   if(sort==='az')entries.sort((a,b)=>a[0].localeCompare(b[0],'de'));
   else entries.sort((a,b)=>b[1]-a[1]);
-  document.getElementById('ranking-list').innerHTML=entries.map(([name,count],i)=>{
-    const pct=total?Math.round(count/total*100):0;
-    return '<div class="rank-row"><span class="rank-num">'+(i+1)+'</span><span class="rank-name">'+name+'</span>'+
-      '<div class="rank-bar-wrap"><div class="rank-bar" style="width:'+pct+'%"></div></div>'+
-      '<span class="rank-pct">'+count+'x</span></div>';
+  const pctWidth=total?100/total:0;
+  document.getElementById('ranking-list').innerHTML=entries.map(([name,cnt,exc],i)=>{
+    const pct=total?Math.round(cnt/total*100):0;
+    const excPct=total?Math.round(exc/total*100):0;
+    return `<div class="rank-row">
+      <span class="rank-num">${i+1}</span>
+      <span class="rank-name">${name}</span>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;gap:2px;height:8px;border-radius:4px;overflow:hidden;background:#eee">
+          <div style="width:${pct}%;background:var(--gruen);height:100%"></div>
+          <div style="width:${excPct}%;background:#ff9800;height:100%"></div>
+        </div>
+      </div>
+      <span style="font-size:11px;color:var(--gruen);width:28px;text-align:right;flex-shrink:0">${cnt}✅</span>
+      <span style="font-size:11px;color:#ff9800;width:28px;text-align:right;flex-shrink:0">${exc}🟡</span>
+    </div>`;
   }).join('');
 }
 
 // ---- HISTORY ----
 function renderHistory(){
   const search=(document.getElementById('history-search').value||'').toLowerCase();
-  let filtered=sessions.filter(s=>!search||s.date.includes(search)||s.present.some(p=>p.toLowerCase().includes(search)));
+  let filtered=sessions.filter(s=>!search||s.date.includes(search)||(s.present||[]).some(p=>p.toLowerCase().includes(search))||(s.excused||[]).some(p=>p.toLowerCase().includes(search)));
   const hl=document.getElementById('history-list');
   if(!filtered.length){hl.innerHTML='<div class="empty">Keine Einträge gefunden</div>';return;}
   hl.innerHTML=filtered.map((s,i)=>`
@@ -597,12 +632,15 @@ function renderHistory(){
       <div class="history-head" onclick="toggleHistoryItem(${i})">
         <span class="history-date">${fmtDate(s.date)}</span>
         <div class="history-meta">
-          <span class="history-count">${s.present.length} Spieler</span>
+          <span class="history-count">${(s.present||[]).length}✅ ${(s.excused||[]).length>0?""+((s.excused||[]).length)+"🟡":""}</span>
           <button class="history-edit-btn" onclick="event.stopPropagation();loadSessionForEdit('${s.date}')">✏️</button>
           <button class="history-del-btn" onclick="event.stopPropagation();askDeleteSession('${s.date}')">🗑</button>
         </div>
       </div>
-      <div class="history-names">${s.present.map(p=>`<span class="name-chip">${p}</span>`).join('')}</div>
+      <div class="history-names">
+        ${(s.present||[]).map(p=>`<span class="name-chip">${p}</span>`).join('')}
+        ${(s.excused||[]).map(p=>`<span class="name-chip-ex">${p}</span>`).join('')}
+      </div>
     </div>`).join('');
 }
 window.toggleHistoryItem = function(i){document.getElementById('hi-'+i).classList.toggle('open');};
