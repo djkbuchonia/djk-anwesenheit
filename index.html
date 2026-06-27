@@ -106,6 +106,19 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .spinner{width:40px;height:40px;border:4px solid rgba(255,255,255,.3);border-top-color:var(--gelb);border-radius:50%;animation:spin .8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 .empty{text-align:center;color:#aaa;padding:30px;font-size:14px}
+
+@media print {
+  .header,.tabs,.stats-header,.history-controls,.manual-area,.search-bar,.date-bar,.save-row,.edit-session-bar,.bday-banner,.modal-bg { display:none !important; }
+  body { background: white !important; }
+  .section { display:block !important; min-height:auto; }
+  #tab-training, #tab-history { display:none !important; }
+  #tab-stats { display:block !important; }
+  .kpi-row { border-bottom: 1px solid #eee; padding-bottom: 12px; margin-bottom: 8px; }
+  .rank-row { break-inside: avoid; border: 1px solid #eee; margin-bottom: 4px; border-radius:4px; }
+  .rank-bar { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  .print-header { display:block !important; text-align:center; margin-bottom:16px; }
+}
+.print-header { display:none; }
 </style>
 </head>
 <body>
@@ -170,6 +183,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <option value="pct">Nach Häufigkeit</option>
       <option value="az">A–Z</option>
     </select>
+    <button onclick="printStats()" style="background:var(--schwarz);color:var(--gelb);border:none;border-radius:6px;padding:9px 14px;font-size:13px;font-weight:600;cursor:pointer;width:100%">🖨️ Auswertung drucken / als PDF speichern</button>
   </div>
   <div class="kpi-row" id="kpi-row"></div>
   <div class="rank-list" id="ranking-list"></div>
@@ -599,6 +613,22 @@ document.getElementById('training-date').addEventListener('change',updateHeaderD
 document.getElementById('training-date').value=todayStr();
 updateHeaderDate();
 initFirebase();
+
+window.printStats = function(){
+  // Make sure stats are rendered
+  renderStats();
+  // Add temporary print header
+  let ph = document.getElementById('print-header');
+  if(!ph){
+    ph = document.createElement('div');
+    ph.id = 'print-header';
+    ph.className = 'print-header';
+    ph.innerHTML = '<h2 style="font-size:18px;margin-bottom:4px">DJK Buchonia Fulda 1920/55</h2><p style="font-size:13px;color:#666">Anwesenheitsauswertung – Stand: '+new Date().toLocaleDateString('de-DE')+'</p>';
+    document.getElementById('tab-stats').prepend(ph);
+  }
+  window.print();
+};
+
 </script>
 </body>
 </html>
